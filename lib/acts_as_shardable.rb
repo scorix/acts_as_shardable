@@ -45,18 +45,6 @@ module ActsAsShardable
             self.class.base_class.sharding(self[self.class.base_class.shard_column]).unscoped._update_record attributes_values, id, id_was
           end
         end
-
-        # was, is = changes[self.class.base_class.shard_column]
-        # if !new_record? && was
-        #   destroy
-        #   o = self.class.base_class.sharding(is)
-        #   becomes(o).save(*args)
-        # elsif self.class < self.class.base_class
-        #   super(*args)
-        # else
-        #   o = self.class.base_class.sharding(self[self.class.base_class.shard_column])
-        #   becomes(o).save(*args)
-        # end
       end
 
       private :_update_record
