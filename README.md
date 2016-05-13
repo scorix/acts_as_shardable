@@ -1,9 +1,5 @@
 # ActsAsShardable
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/acts_as_shardable`. To experiment with that code, run `bin/console` for an interactive prompt.
-
-TODO: Delete this and the text above, and describe your gem
-
 ## Installation
 
 Add this line to your application's Gemfile:
@@ -22,13 +18,61 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+Example
+
+In your model:
+
+```ruby
+class Mod2Model < ActiveRecord::Base
+  acts_as_shardable by: :hash_id, mod: 2
+end
+```
+
+and migrations:
+
+```ruby
+class CreateMod2Models < ActiveRecord::Migration
+  def self.up
+    shards.times do |i|
+      create_table("mod2_models_%04d" % i) do |t|
+        t.integer :hash_id
+      end
+    end
+  end
+
+  def self.down
+    shards.times do |i|
+      drop_table("cc_study_durations_%04d" % i)
+    end
+  end
+
+  def self.shards
+    2
+  end
+end
+```
+
+Then if you call
+
+```ruby
+Mod2Model.create(hash: 1)
+```
+
+it will save the record into `mod2_models_0001`.
+
+And
+
+```ruby
+Mod2Model.create(hash: 2)
+```
+
+will save the record into `mod2_models_0002`.
 
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and tags, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+run `rake test` to run tests.
 
 ## Contributing
 
