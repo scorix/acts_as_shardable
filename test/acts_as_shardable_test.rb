@@ -136,9 +136,9 @@ class ActsAsShardableTest < Minitest::Test
 end
 
 class Mod2Model < ActiveRecord::Base
-  acts_as_shardable column: :hash_id, mod: 2
+  acts_as_shardable by: :hash_id, mod: 2
 end
 
 class Mod4Model < ActiveRecord::Base
-  acts_as_shardable column: :hash_id, mod: 4
+  acts_as_shardable by: :hash_id, mod: 4
 end

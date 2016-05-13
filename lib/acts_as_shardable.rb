@@ -10,16 +10,16 @@ module ActsAsShardable
     Mutex.new
   end
 
-  def acts_as_shardable(column:, mod:)
-    class_attribute :shard_column, :shard_mod, :module_name, :base_table_name
+  def acts_as_shardable(by:, mod:)
+    class_attribute :shard_method, :shard_mod, :module_name, :base_table_name
 
     mutex.synchronize do
-      self.shard_column = column
+      self.shard_method = by
       self.shard_mod = mod
       self.module_name = self.name.deconstantize.safe_constantize || Object
       self.base_table_name = self.name.demodulize.pluralize.underscore
       self.table_name = "#{self.base_table_name}_0000"
-      self.validates self.shard_column.to_sym, presence: true
+      self.validates self.shard_method.to_sym, presence: true
 
       # Updates the associated record with values matching those of the instance attributes.
       # Returns the number of affected rows.
@@ -28,7 +28,7 @@ module ActsAsShardable
         if attributes_values.empty?
           0
         else
-          was, is = changes[self.class.base_class.shard_column]
+          was, is = changes[self.class.base_class.shard_method]
           if was
             transaction do
               self.class.base_class.sharding(is).unscoped.insert attributes_values
@@ -42,7 +42,7 @@ module ActsAsShardable
 
             1
           else
-            self.class.base_class.sharding(self[self.class.base_class.shard_column]).unscoped._update_record attributes_values, id, id_was
+            self.class.base_class.sharding(public_send(self.class.base_class.shard_method)).unscoped._update_record attributes_values, id, id_was
           end
         end
       end
@@ -54,7 +54,7 @@ module ActsAsShardable
       define_method :_create_record do |attribute_names = self.attribute_names|
         attributes_values = arel_attributes_with_values_for_create(attribute_names)
 
-        new_id = self.class.base_class.sharding(self[self.class.base_class.shard_column]).unscoped.insert attributes_values
+        new_id = self.class.base_class.sharding(public_send(self.class.base_class.shard_method)).unscoped.insert attributes_values
         self.id ||= new_id if self.class.base_class.primary_key
 
         @new_record = false
