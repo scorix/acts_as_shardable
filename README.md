@@ -42,7 +42,7 @@ class CreateMod2Models < ActiveRecord::Migration
 
   def self.down
     shards.times do |i|
-      drop_table("cc_study_durations_%04d" % i)
+      drop_table("mod2_models_%04d" % i)
     end
   end
 
