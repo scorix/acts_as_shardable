@@ -43,7 +43,7 @@ module ActsAsShardable
             attribute_names.uniq!
 
             begin
-              relation = self.class.base_class.sharding(is).unscoped
+              relation = shard.unscoped
 
               affected_rows = relation.where(
                   self.class.primary_key => id,
@@ -66,7 +66,15 @@ module ActsAsShardable
               raise
             end
           else
-            attributes_values = arel_attributes_with_values_for_update(attribute_names)
+            attribute_names = attributes_for_update(attribute_names)
+
+            attributes_values = {}
+            arel_table = shard.arel_table
+
+            attribute_names.each do |name|
+              attributes_values[arel_table[name]] = typecasted_attribute_value(name)
+            end
+
             if attributes_values.empty?
               0
             else
@@ -153,8 +161,21 @@ module ActsAsShardable
         end
       end
 
-      define_method :real do
-        self.class.sharding(self[self.class.base_class.shard_method]).find(id)
+      define_method :reload do |options = nil|
+        clear_aggregation_cache
+        clear_association_cache
+        shard.connection.clear_query_cache
+
+        fresh_object =
+            if options && options[:lock]
+              shard.unscoped { shard.lock(options[:lock]).find(id) }
+            else
+              shard.unscoped { shard.find(id) }
+            end
+
+        @attributes = fresh_object.instance_variable_get('@attributes')
+        @new_record = false
+        fresh_object
       end
     end
 

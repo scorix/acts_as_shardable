@@ -110,10 +110,10 @@ class ActsAsShardableTest < Minitest::Test
   end
 
   def test_touch
-    m1 = Mod2Model.create(hash_id: 0)
-    m2 = Mod2Model.sharding(0).first
-    assert_equal(0, Mod2Model.sharding(1).count)
-    assert_equal(1, Mod2Model.sharding(0).count)
+    m1 = Mod2Model.create(hash_id: 1)
+    m2 = Mod2Model.sharding(1).first
+    assert_equal(1, Mod2Model.sharding(1).count)
+    assert_equal(0, Mod2Model.sharding(0).count)
     assert(m1.touch)
     assert(m2.touch)
     assert(m2.reload.touch)
@@ -121,10 +121,10 @@ class ActsAsShardableTest < Minitest::Test
   end
 
   def test_touch_with_lock
-    m1 = Mod4Model.create(hash_id: 0)
-    m2 = Mod4Model.sharding(0).first
-    assert_equal(0, Mod4Model.sharding(1).count)
-    assert_equal(1, Mod4Model.sharding(0).count)
+    m1 = Mod4Model.create(hash_id: 1)
+    m2 = Mod4Model.sharding(1).first
+    assert_equal(1, Mod4Model.sharding(1).count)
+    assert_equal(0, Mod4Model.sharding(0).count)
     assert(m1.touch)
     assert(m2.touch)
     assert(m2.reload.touch)
@@ -132,10 +132,10 @@ class ActsAsShardableTest < Minitest::Test
   end
 
   def test_update
-    m1 = Mod2Model.create(hash_id: 0)
-    m2 = Mod2Model.sharding(0).first
-    assert_equal(0, Mod2Model.sharding(1).count)
-    assert_equal(1, Mod2Model.sharding(0).count)
+    m1 = Mod2Model.create(hash_id: 1)
+    m2 = Mod2Model.sharding(1).first
+    assert_equal(1, Mod2Model.sharding(1).count)
+    assert_equal(0, Mod2Model.sharding(0).count)
     assert(m1.update(updated_at: Time.now))
     assert(m2.update(updated_at: Time.now))
     assert(m2.reload.update(updated_at: Time.now))
@@ -143,14 +143,15 @@ class ActsAsShardableTest < Minitest::Test
   end
 
   def test_update_with_lock
-    m1 = Mod4Model.create(hash_id: 0)
-    m2 = Mod4Model.sharding(0).first
-    assert_equal(0, Mod4Model.sharding(1).count)
-    assert_equal(1, Mod4Model.sharding(0).count)
+    m1 = Mod4Model.create(hash_id: 1)
+    m2 = Mod4Model.sharding(1).first
+    assert_equal(1, Mod4Model.sharding(1).count)
+    assert_equal(0, Mod4Model.sharding(0).count)
     assert(m1.update(updated_at: Time.now))
     assert_raises(ActiveRecord::StaleObjectError) { m2.update(updated_at: Time.now) }
     assert(m2.reload.update(updated_at: Time.now))
     assert_raises(ActiveRecord::StaleObjectError) { m1.update(updated_at: Time.now) }
+    assert(m1.reload.update(updated_at: Time.now))
   end
 
   def test_update_wrong_sharding
