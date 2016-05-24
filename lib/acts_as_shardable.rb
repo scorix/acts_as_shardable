@@ -36,7 +36,7 @@ module ActsAsShardable
           # shard_column not changing
           if locking_enabled?
             lock_col = self.class.base_class.locking_column
-            previous_lock_value = self[lock_col]
+            previous_lock_value = read_attribute(lock_col)
             self[lock_col] = previous_lock_value + 1
 
             attribute_names += [lock_col].compact
@@ -127,7 +127,8 @@ module ActsAsShardable
       private :_create_record
 
       define_method :shard do
-        self.class.base_class.sharding(self[self.class.base_class.shard_method])
+        shard_value = self.send(self.class.base_class.shard_method)
+        self.class.base_class.sharding(shard_value)
       end
 
       private :shard
