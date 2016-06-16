@@ -138,8 +138,8 @@ module ActsAsShardable
         klass = "#{base_class.name.demodulize}_%04d" % i
         @@sharding_class ||= {}
         @@sharding_class[klass] ||= mutex.synchronize do
-          if module_name.const_defined?(klass)
-            module_name.const_get(klass)
+          if module_name.const_defined?(klass, false)
+            module_name.const_get(klass, false)
           else
             Class.new(base_class) do
               self.table_name = ("#{base_class.base_table_name}_%04d" % i)
@@ -148,11 +148,11 @@ module ActsAsShardable
                 self.protobuf_message base_class.protobuf_message
 
                 # Create a .to_proto method on XXX::ActiveRecord_Relation
-                self.const_get('ActiveRecord_Relation').class_exec do
+                self.const_get('ActiveRecord_Relation', false).class_exec do
                   def to_proto(*args)
                     msg_class = base_class.name.demodulize.pluralize
                     module_name = base_class.name.deconstantize.constantize
-                    module_name::Messages.const_get(msg_class).new(msg_class.underscore => map { |r| r.to_proto(*args) })
+                    module_name::Messages.const_get(msg_class, false).new(msg_class.underscore => map { |r| r.to_proto(*args) })
                   end
                 end
               end
