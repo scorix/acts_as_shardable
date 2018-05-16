@@ -24,6 +24,7 @@ module ActsAsShardable
       # Updates the associated record with values matching those of the instance attributes.
       # Returns the number of affected rows.
       define_method :_update_record do |attribute_names = self.attribute_names|
+        attribute_names = keys_for_partial_write if attribute_names.empty?
 
         was, is = changes[self.class.base_class.shard_method]
 
