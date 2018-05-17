@@ -183,10 +183,14 @@ class ActsAsShardableTest < Minitest::Test
   end
 end
 
-class Mod2Model < ActiveRecord::Base
+class ApplicationRecord < ActiveRecord::Base
+  self.abstract_class = true
+end
+
+class Mod2Model < ApplicationRecord
   acts_as_shardable by: :hash_id, mod: 2
 end
 
-class Mod4Model < ActiveRecord::Base
+class Mod4Model < ApplicationRecord
   acts_as_shardable by: :hash_id, mod: 4
 end
