@@ -79,7 +79,12 @@ module ActsAsShardable
             if attributes_values.empty?
               0
             else
-              shard.unscoped._update_record attributes_values, id, id_was
+              if shard.unscoped.method(:_update_record).parameters.size == 2
+                shard.unscoped._update_record(attributes_values,
+                                              self.class.base_class.primary_key => id_in_database)
+              else
+                shard.unscoped._update_record attributes_values, id, id_was
+              end
             end
           end
         end
@@ -103,7 +108,16 @@ module ActsAsShardable
             changes[column] = write_attribute(column, current_time)
           end
 
-          changes[self.class.locking_column] = increment_lock if locking_enabled?
+          if locking_enabled?
+            if self.respond_to?(:increment_lock)
+              changes[self.class.base_class.locking_column] = increment_lock
+            else
+              lock_col = self.class.base_class.locking_column
+              previous_lock_value = read_attribute(lock_col)
+              self[lock_col] = previous_lock_value + 1
+              changes[lock_col] = self[lock_col]
+            end
+          end
 
           clear_attribute_changes(changes.keys)
           primary_key = self.class.primary_key
@@ -116,13 +130,18 @@ module ActsAsShardable
       # Creates a record with values matching those of the instance attributes
       # and returns its id.
       define_method :_create_record do |attribute_names = self.attribute_names|
-        attributes_values = arel_attributes_with_values_for_create(attribute_names)
+        _run_create_callbacks {
+          attribute_names = keys_for_partial_write if self.class.base_class.partial_writes
+          attribute_names |= [self.class.base_class.locking_column] if locking_enabled?
 
-        new_id = shard.unscoped.insert attributes_values
-        self.id ||= new_id if self.class.base_class.primary_key
+          attributes_values = arel_attributes_with_values_for_create(attribute_names)
 
-        @new_record = false
-        id
+          new_id = shard.unscoped.insert attributes_values
+          self.id ||= new_id if self.class.base_class.primary_key
+
+          @new_record = false
+          id
+        }
       end
 
       private :_create_record
