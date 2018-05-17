@@ -24,7 +24,7 @@ module ActsAsShardable
       # Updates the associated record with values matching those of the instance attributes.
       # Returns the number of affected rows.
       define_method :_update_record do |attribute_names = self.attribute_names|
-        attribute_names = keys_for_partial_write if attribute_names.empty?
+        attribute_names = keys_for_partial_write if self.class.base_class.partial_writes
 
         was, is = changes[self.class.base_class.shard_method]
 
@@ -67,23 +67,25 @@ module ActsAsShardable
               raise
             end
           else
-            attribute_names = attributes_for_update(attribute_names)
+            if self.respond_to?(:attributes_with_values_for_update, true)
+              attributes_values = attributes_with_values_for_update(attribute_names)
+            else
+              attribute_names = attributes_for_update(attribute_names)
+              attributes_values = {}
+              arel_table = shard.arel_table
 
-            attributes_values = {}
-            arel_table = shard.arel_table
-
-            attribute_names.each do |name|
-              attributes_values[arel_table[name]] = typecasted_attribute_value(name)
+              attribute_names.each do |name|
+                attributes_values[arel_table[name]] = typecasted_attribute_value(name)
+              end
             end
 
             if attributes_values.empty?
               0
             else
-              if shard.unscoped.method(:_update_record).parameters.size == 2
-                shard.unscoped._update_record(attributes_values,
-                                              self.class.base_class.primary_key => id_in_database)
+              if ActiveRecord::VERSION::MAJOR == 5 && ActiveRecord::VERSION::MINOR >= 1
+                shard.unscoped._update_record(attributes_values, self.class.base_class.primary_key => id_in_database)
               else
-                shard.unscoped._update_record attributes_values, id, id_was
+                shard.unscoped._update_record(attributes_values, id, id_was)
               end
             end
           end
@@ -134,9 +136,18 @@ module ActsAsShardable
           attribute_names = keys_for_partial_write if self.class.base_class.partial_writes
           attribute_names |= [self.class.base_class.locking_column] if locking_enabled?
 
-          attributes_values = arel_attributes_with_values_for_create(attribute_names)
+          if self.respond_to?(:attributes_with_values_for_create, true)
+            attributes_values = attributes_with_values_for_create(attribute_names)
+          else
+            attributes_values = arel_attributes_with_values_for_create(attribute_names)
+          end
 
-          new_id = shard.unscoped.insert attributes_values
+          if shard.respond_to?(:_insert_record)
+            new_id = shard.unscoped._insert_record attributes_values
+          else
+            new_id = shard.unscoped.insert attributes_values
+          end
+
           self.id ||= new_id if self.class.base_class.primary_key
 
           @new_record = false
