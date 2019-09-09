@@ -18,17 +18,25 @@ Or install it yourself as:
 
 ## Usage
 
-Example
+Examples
 
-In your model:
+### Built-in sharding method(mod)
 
 ```ruby
 class Mod2Model < ActiveRecord::Base
-  acts_as_shardable by: :hash_id, mod: 2
+  acts_as_shardable by: :hash_id, using: :mod, args: { mod: 2 }
 end
 ```
 
-and migrations:
+### Customized sharding method
+
+```ruby
+class Mod2Model < ActiveRecord::Base
+  acts_as_shardable by: :hash_id, using: ->(hash_id) { hash_id % 2 }
+end
+```
+
+### Migrations
 
 ```ruby
 class CreateMod2Models < ActiveRecord::Migration

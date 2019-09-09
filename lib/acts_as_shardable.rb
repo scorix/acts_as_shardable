@@ -1,5 +1,7 @@
 require 'active_record'
 require "acts_as_shardable/version"
+require "acts_as_shardable/attribute_methods"
+require "acts_as_shardable/shard"
 
 module ActsAsShardable
 
@@ -10,207 +12,30 @@ module ActsAsShardable
     Mutex.new
   end
 
-  def acts_as_shardable(by:, mod:)
-    class_attribute :shard_method, :shard_mod, :module_name, :base_table_name
+  def acts_as_shardable(by:, using:, args: {})
+    class_attribute :shard_method, :shard_method_using, :shard_args, :module_name, :base_table_name
+
+    case using
+    when Symbol
+      # built-in functions
+    when Proc
+      # customized functions
+    else
+      raise ArgumentError, "unknown sharding function, `using` must be a symbol or proc"
+    end
 
     mutex.synchronize do
       self.shard_method = by
-      self.shard_mod = mod
+      self.shard_method_using = using
+      self.shard_args = args
       self.module_name = self.name.deconstantize.safe_constantize || Object
       self.base_table_name = self.name.demodulize.pluralize.underscore
       self.table_name = "#{self.base_table_name}_0000"
       self.validates self.shard_method.to_sym, presence: true
-
-      # Updates the associated record with values matching those of the instance attributes.
-      # Returns the number of affected rows.
-      define_method :_update_record do |attribute_names = self.attribute_names|
-        attribute_names = keys_for_partial_write if self.class.base_class.partial_writes
-
-        was, is = changes[self.class.base_class.shard_method]
-
-        if was
-          # shard_column changed
-          table_was = self.class.base_class.sharding(was).table_name
-          table_is = self.class.base_class.sharding(is).table_name
-          raise WrongShardingError, "Please move from #{table_was} to #{table_is} manually."
-        else
-          # shard_column not changing
-          if locking_enabled?
-            lock_col = self.class.base_class.locking_column
-            previous_lock_value = read_attribute(lock_col)
-            self[lock_col] = previous_lock_value + 1
-
-            attribute_names += [lock_col].compact
-            attribute_names.uniq!
-
-            begin
-              relation = shard.unscoped
-
-              affected_rows = relation.where(
-                  self.class.primary_key => id,
-                  lock_col => previous_lock_value,
-              ).update_all(
-                  Hash[attributes_for_update(attribute_names).map do |name|
-                    [name, _read_attribute(name)]
-                  end]
-              )
-
-              unless affected_rows == 1
-                raise ActiveRecord::StaleObjectError.new(self, "update")
-              end
-
-              affected_rows
-
-                # If something went wrong, revert the version.
-            rescue Exception
-              send(lock_col + '=', previous_lock_value)
-              raise
-            end
-          else
-            if self.respond_to?(:attributes_with_values_for_update, true)
-              attributes_values = attributes_with_values_for_update(attribute_names)
-            else
-              attribute_names = attributes_for_update(attribute_names)
-              attributes_values = {}
-              arel_table = shard.arel_table
-
-              attribute_names.each do |name|
-                attributes_values[arel_table[name]] = typecasted_attribute_value(name)
-              end
-            end
-
-            if attributes_values.empty?
-              0
-            else
-              if ActiveRecord::VERSION::MAJOR == 5 && ActiveRecord::VERSION::MINOR >= 1
-                shard.unscoped._update_record(attributes_values, self.class.base_class.primary_key => id_in_database)
-              else
-                shard.unscoped._update_record(attributes_values, id, id_was)
-              end
-            end
-          end
-        end
-      end
-
-      private :_update_record
-
-
-      define_method :touch do |*names|
-        raise ActiveRecordError, "cannot touch on a new record object" unless persisted?
-
-        attributes = timestamp_attributes_for_update_in_model
-        attributes.concat(names)
-
-        unless attributes.empty?
-          current_time = current_time_from_proper_timezone
-          changes = {}
-
-          attributes.each do |column|
-            column = column.to_s
-            changes[column] = write_attribute(column, current_time)
-          end
-
-          if locking_enabled?
-            if self.respond_to?(:increment_lock)
-              changes[self.class.base_class.locking_column] = increment_lock
-            else
-              lock_col = self.class.base_class.locking_column
-              previous_lock_value = read_attribute(lock_col)
-              self[lock_col] = previous_lock_value + 1
-              changes[lock_col] = self[lock_col]
-            end
-          end
-
-          clear_attribute_changes(changes.keys)
-          primary_key = self.class.primary_key
-          shard.unscoped.where(primary_key => self[primary_key]).update_all(changes) == 1
-        else
-          true
-        end
-      end
-
-      # Creates a record with values matching those of the instance attributes
-      # and returns its id.
-      define_method :_create_record do |attribute_names = self.attribute_names|
-        _run_create_callbacks {
-          attribute_names = keys_for_partial_write if self.class.base_class.partial_writes
-          attribute_names |= [self.class.base_class.locking_column] if locking_enabled?
-
-          if self.respond_to?(:attributes_with_values_for_create, true)
-            attributes_values = attributes_with_values_for_create(attribute_names)
-          else
-            attributes_values = arel_attributes_with_values_for_create(attribute_names)
-          end
-
-          if shard.respond_to?(:_insert_record)
-            new_id = shard.unscoped._insert_record attributes_values
-          else
-            new_id = shard.unscoped.insert attributes_values
-          end
-
-          self.id ||= new_id if self.class.base_class.primary_key
-
-          @new_record = false
-          id
-        }
-      end
-
-      private :_create_record
-
-      define_method :shard do
-        shard_value = self.send(self.class.base_class.shard_method)
-        self.class.base_class.sharding(shard_value)
-      end
-
-      private :shard
-
-      self.class.send :define_method, :sharding do |column|
-        i = column.to_i % shard_mod
-        klass = "#{base_class.name.demodulize}_%04d" % i
-        @@sharding_class ||= {}
-        @@sharding_class[klass] ||= mutex.synchronize do
-          if module_name.const_defined?(klass, false)
-            module_name.const_get(klass, false)
-          else
-            Class.new(base_class) do
-              self.table_name = ("#{base_class.base_table_name}_%04d" % i)
-
-              if base_class.respond_to?(:protobuf_message)
-                self.protobuf_message base_class.protobuf_message
-
-                # Create a .to_proto method on XXX::ActiveRecord_Relation
-                self.const_get('ActiveRecord_Relation', false).class_exec do
-                  def to_proto(*args)
-                    msg_class = base_class.name.demodulize.pluralize
-                    module_name = base_class.name.deconstantize.constantize
-                    module_name::Messages.const_get(msg_class, false).new(msg_class.underscore => map { |r| r.to_proto(*args) })
-                  end
-                end
-              end
-
-            end.tap { |k| module_name.const_set(klass, k) }
-          end
-        end
-      end
-
-      define_method :reload do |options = nil|
-        clear_aggregation_cache
-        clear_association_cache
-        shard.connection.clear_query_cache
-
-        fresh_object =
-            if options && options[:lock]
-              shard.unscoped { shard.lock(options[:lock]).find(id) }
-            else
-              shard.unscoped { shard.find(id) }
-            end
-
-        @attributes = fresh_object.instance_variable_get('@attributes')
-        @new_record = false
-        fresh_object
-      end
     end
 
+    include AttributeMethods
+    include Shard
   end
 
 end

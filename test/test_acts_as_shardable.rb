@@ -6,8 +6,8 @@ require 'sqlite3'
 class ActsAsShardableTest < Minitest::Test
   def setup
     ActiveRecord::Base.establish_connection(
-        :adapter => 'sqlite3',
-        :database => 'tmp/test.db'
+      :adapter => 'sqlite3',
+      :database => 'tmp/test.db'
     )
 
     ActiveRecord::Base.connection.tables.each do |table|
@@ -26,6 +26,7 @@ class ActsAsShardableTest < Minitest::Test
       4.times do |i|
         create_table('mod4_models_%04d' % i) do |t|
           t.integer :hash_id
+          t.integer :some_number
           t.integer :lock_version
           t.timestamps null: true
         end
@@ -56,6 +57,11 @@ class ActsAsShardableTest < Minitest::Test
     assert_equal('Mod2Model_0001', Mod2Model.sharding(1).name)
     assert_equal('Mod2Model_0000', Mod2Model.sharding(2).name)
     assert_equal('Mod2Model_0001', Mod2Model.sharding(3).name)
+
+    assert_equal(Mod2Model_0000, Mod2Model.sharding(0))
+    assert_equal(Mod2Model_0001, Mod2Model.sharding(1))
+    assert_equal(Mod2Model_0000, Mod2Model.sharding(2))
+    assert_equal(Mod2Model_0001, Mod2Model.sharding(3))
   end
 
   def test_mod4_class
@@ -75,9 +81,9 @@ class ActsAsShardableTest < Minitest::Test
     assert_equal(0, Mod2Model.sharding(1).count)
     assert_equal(1, Mod2Model.sharding(0).count)
     m = Mod2Model.new(hash_id: 1)
-    assert(m.save)
-    assert_equal(1, Mod2Model.sharding(1).count)
+    assert(m.save!)
     assert_equal(1, Mod2Model.sharding(0).count)
+    assert_equal(1, Mod2Model.sharding(1).count)
   end
 
   def test_sharding_save
@@ -86,7 +92,7 @@ class ActsAsShardableTest < Minitest::Test
     assert_equal(0, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
     m = Mod4Model.sharding(1).new(hash_id: 1)
-    assert(m.save)
+    assert(m.save!)
     assert_equal(1, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
   end
@@ -95,7 +101,7 @@ class ActsAsShardableTest < Minitest::Test
     assert(Mod4Model.create(hash_id: 0))
     assert_equal(0, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
-    assert(Mod4Model.create(hash_id: 1))
+    assert(Mod4Model.create!(hash_id: 1))
     assert_equal(1, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
   end
@@ -104,7 +110,7 @@ class ActsAsShardableTest < Minitest::Test
     assert(Mod4Model.sharding(0).create(hash_id: 0))
     assert_equal(0, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
-    assert(Mod4Model.sharding(1).create(hash_id: 1))
+    assert(Mod4Model.sharding(1).create!(hash_id: 1))
     assert_equal(1, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
   end
@@ -126,9 +132,9 @@ class ActsAsShardableTest < Minitest::Test
     assert_equal(1, Mod4Model.sharding(1).count)
     assert_equal(0, Mod4Model.sharding(0).count)
     assert(m1.touch)
-    assert(m2.touch)
+    assert_raises(ActiveRecord::StaleObjectError) { m2.touch }
     assert(m2.reload.touch)
-    assert(m1.touch)
+    assert_raises(ActiveRecord::StaleObjectError) { m1.touch }
   end
 
   def test_update
@@ -161,6 +167,9 @@ class ActsAsShardableTest < Minitest::Test
     assert_raises(ActsAsShardable::WrongShardingError) { m.update(hash_id: 1) }
     assert_equal(0, Mod2Model.sharding(1).count)
     assert_equal(1, Mod2Model.sharding(0).count)
+    assert_raises(ActsAsShardable::WrongShardingError) { m.update!(hash_id: 1) }
+    assert_equal(0, Mod2Model.sharding(1).count)
+    assert_equal(1, Mod2Model.sharding(0).count)
   end
 
   def test_update_wrong_sharding_with_lock
@@ -170,6 +179,9 @@ class ActsAsShardableTest < Minitest::Test
     assert_raises(ActsAsShardable::WrongShardingError) { m.update(hash_id: 1) }
     assert_equal(0, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
+    assert_raises(ActsAsShardable::WrongShardingError) { m.update!(hash_id: 1) }
+    assert_equal(0, Mod4Model.sharding(1).count)
+    assert_equal(1, Mod4Model.sharding(0).count)
   end
 
   def test_update_failed
@@ -177,7 +189,7 @@ class ActsAsShardableTest < Minitest::Test
     m.freeze
     assert_equal(0, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
-    assert_raises(RuntimeError) { m.update(hash_id: 1) }
+    assert_raises(ActsAsShardable::WrongShardingError) { m.update(hash_id: 1) }
     assert_equal(0, Mod4Model.sharding(1).count)
     assert_equal(1, Mod4Model.sharding(0).count)
   end
@@ -188,9 +200,9 @@ class ApplicationRecord < ActiveRecord::Base
 end
 
 class Mod2Model < ApplicationRecord
-  acts_as_shardable by: :hash_id, mod: 2
+  acts_as_shardable by: :hash_id, using: :mod, args: { mod: 2 }
 end
 
 class Mod4Model < ApplicationRecord
-  acts_as_shardable by: :hash_id, mod: 4
+  acts_as_shardable by: :hash_id, using: :mod, args: { mod: 4 }
 end
